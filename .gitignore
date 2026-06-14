@@ -1,0 +1,12 @@
+.env
+
+__pycache__/
+*.pyc
+
+build/
+dist/
+
+backups/
+
+venv/
+estamp-billing-system/venv/
