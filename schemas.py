@@ -1,6 +1,9 @@
 from pydantic import BaseModel
 from typing import List,Optional
 from datetime import datetime
+class PaymentCreate(BaseModel):
+    customer_id: int
+    amount: int
 class KhataCustomerSummary(BaseModel):
     id: int
     name: str

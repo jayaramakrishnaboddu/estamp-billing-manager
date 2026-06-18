@@ -1,12 +1,13 @@
 .env
-
-__pycache__/
-*.pyc
-
 build/
 dist/
-
 backups/
 
-venv/
-estamp-billing-system/venv/
+# Ignore the virtual environment folder
+**/estamp-billing-system/
+
+# Ignore system cache, logs, and generated report sheets
+**/__pycache__/
+*.pyc
+*.xlsx
+*.sql

@@ -4,15 +4,26 @@ import datetime
 from database import Base
 from datetime import datetime
 from sqlalchemy import DateTime
+from zoneinfo import ZoneInfo
 
 class Payment(Base):
     __tablename__ = "payments"
 
-    id = Column(Integer, primary_key=True, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id"))
-    amount = Column(Integer, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-    
+    id = Column(Integer, primary_key=True)
+
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id")
+    )
+    amount = Column(Integer) 
+
+    previous_due = Column(Integer)
+
+    amount_paid = Column(Integer)
+
+    remaining_due = Column(Integer)
+
+    timestamp = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")))
 class User(Base):
     __tablename__ = "users"
     
@@ -41,7 +52,7 @@ class Transaction(Base):
     service_charge = Column(Integer, nullable=False)      # Calculated automatically (+20, +30)
     total_collected = Column(Integer, nullable=False)     # stamp_duty + service_charge
     payment_mode = Column(String, nullable=False)         # 'Cash', 'PhonePe', or 'Debt'
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")))
     processed_by = Column(String, nullable=True)
 
     # Foreign key link for Debt payments

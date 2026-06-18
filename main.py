@@ -28,12 +28,17 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="E-Stamp Automated Billing & Accounting System API")
 def calculate_service_charge(stamp_duty: int) -> int:
-    if stamp_duty == 100:
-        return 30
-    elif stamp_duty in (10, 50):
-        return 20
-    else:
-        return 20 
+
+    charge_map = {
+        10: 20,
+        50: 20,
+        100: 30,
+        200: 60,
+        500: 100,
+        1000: 100
+    }
+
+    return charge_map.get(stamp_duty, 20)
 
 @app.post("/customers/", response_model=schemas.CustomerResponse, status_code=status.HTTP_201_CREATED)
 def create_customer(customer: schemas.CustomerCreate, db: Session = Depends(get_db)):
@@ -282,14 +287,19 @@ def record_payment(
 
     if payment.amount <= 0:
         raise HTTPException(400, "Invalid amount")
-
-    customer.current_balance = max(
-        0,
-        customer.current_balance - payment.amount
-    )
-
+    previous_due = customer.current_balance
+    if payment.amount > previous_due:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Payment exceeds outstanding due of ₹{previous_due}"
+        )
+    remaining_due = previous_due - payment.amount
+    customer.current_balance = remaining_due
     new_payment = models.Payment(
         customer_id=payment.customer_id,
+        previous_due=previous_due,
+        amount_paid=payment.amount,
+        remaining_due=remaining_due,
         amount=payment.amount
     )
 
@@ -298,8 +308,10 @@ def record_payment(
     db.refresh(customer)
     
     return {
-        "message": "Payment recorded",
-        "remaining_due": customer.current_balance
+        "message": "Payment recorded successfully",
+        "previous_due": previous_due,
+        "amount_paid": payment.amount,
+        "remaining_due": remaining_due
     }
 @app.delete("/customers/{customer_id}/")
 def delete_customer(
@@ -537,3 +549,20 @@ async def restore_database(
     return {
         "message": "Database restored successfully"
     }
+@app.get("/customers/{customer_id}/payments/")
+def get_customer_payments(
+    customer_id: int,
+    db: Session = Depends(get_db)
+):
+    payments = (
+        db.query(models.Payment)
+        .filter(
+            models.Payment.customer_id == customer_id
+        )
+        .order_by(
+            models.Payment.timestamp.desc()
+        )
+        .all()
+    )
+
+    return payments

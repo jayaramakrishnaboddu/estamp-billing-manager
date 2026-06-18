@@ -4,6 +4,8 @@ import io
 import pandas as pd
 from PIL import Image
 from streamlit_paste_button import paste_image_button
+import time
+from alerts import floating_drop_message
 BACKEND_URL = "http://127.0.0.1:8000"
 
 if "logged_in" not in st.session_state:
@@ -91,6 +93,7 @@ else:
     tab_list = [
         "📥 Stamp Processing",
         "👥 Khata Ledger Statement",
+        "📊 Daily Metrics Overview",
         "📋 Transaction Logs Management"
     ]
 tabs = st.tabs(tab_list)
@@ -146,7 +149,19 @@ with tabs[0]:
         amt_input = st.number_input("Face Value Stamp Duty (₹):", value=int(st.session_state.stamp_amt), step=10)
 
         # Hiding pricing breakdown calculations dynamically from standard workers
-        local_fee = 30 if amt_input == 100 else 20
+        fee_map = {
+            10: 20,
+            50: 20,
+            100: 30,
+            200: 60,
+            500: 100,
+            1000: 100
+        }
+
+        local_fee = fee_map.get(
+            amt_input,
+            20
+        )
         if user_role == "Admin":
             st.info(f"💰 Surcharge: **+₹{local_fee}** | Total Bill: **₹{amt_input + local_fee}**")
         else:
@@ -168,7 +183,8 @@ with tabs[0]:
                 }
                 res = requests.post(f"{BACKEND_URL}/transactions/", json=payload)
                 if res.status_code == 201:
-                    st.success("🎉 Entry successfully recorded!")
+                    floating_drop_message("🚀 SUCCESS: Entry Recorded!", bg_color="#EE0101", text_color="#FFFFFF")
+                    time.sleep(2)
                     st.session_state.cert_num = ""
                     st.session_state.stamp_amt = 10
                     st.rerun()
@@ -222,14 +238,75 @@ with tabs[1]:
                         st.rerun()
                     else:
                         st.error(response.json().get("detail", "Failed to record payment."))
-                st.write("#### Historical Stamp Credit Logs File")
-                if stmt_data["history"]:
-                    stmt_df = pd.DataFrame(stmt_data["history"])
-                    stmt_df = stmt_df[["id", "certificate_number", "stamp_duty", "total_collected", "timestamp"]]
-                    stmt_df.columns = ["Tx ID", "Certificate Number", "Stamp Face Value", "Total Debted Balance Charged", "Issued Date & Time"]
-                    st.dataframe(stmt_df, use_container_width=True, hide_index=True)
-                else:
-                    st.info("No recorded pending debt transactions verified for this user balance.")
+                col1, col2 = st.columns(2)
+
+                with col1:
+
+                    st.write("#### 📜 Historical Stamp Credit Logs")
+
+                    if stmt_data["history"]:
+
+                        stmt_df = pd.DataFrame(
+                            stmt_data["history"]
+                        )
+
+                        stmt_df = stmt_df[
+                            [
+                                "id",
+                                "certificate_number",
+                                "stamp_duty",
+                                "total_collected",
+                                "timestamp"
+                            ]
+                        ]
+
+                        stmt_df.columns = [
+                            "Tx ID",
+                            "Certificate Number",
+                            "Stamp Value",
+                            "Amount Added",
+                            "Date"
+                        ]
+
+                        st.dataframe(
+                            stmt_df,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                    else:
+                        st.info(
+                            "No debt transactions found."
+                        )
+
+                with col2:
+
+                    st.write("#### 💵 Payment History")
+
+                    pay_res = requests.get(
+                        f"{BACKEND_URL}/customers/{target_id}/payments/"
+                    )
+
+                    if pay_res.status_code == 200:
+
+                        pay_data = pay_res.json()
+
+                        if pay_data:
+
+                            pay_df = pd.DataFrame(
+                                pay_data
+                            )
+
+                            st.dataframe(
+                                pay_df,
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                        else:
+                            st.info(
+                                "No payments recorded yet."
+                            )
         except Exception as e:
             st.error(f"Failed to fetch customer specific statement trail: {str(e)}")
             
@@ -286,150 +363,155 @@ with tabs[1]:
 # ==========================================
 # TAB 3: ADMIN DAILY METRICS OVERVIEW (HIDDEN FROM WORKER)
 # ==========================================
-if user_role == "admin":
-    with tabs[2]:
-        st.subheader("📊 Live Daily Reconciliation Ledger (Admin Oversight)")
-        try:
-            analytics_res = requests.get(f"{BACKEND_URL}/analytics/daily-summary/", headers=headers)
-            if analytics_res.status_code == 200:
-                m = analytics_res.json()
-                m_col1, m_col2 = st.columns(2)
-                with m_col1:
-                    st.metric(label="💵 Counter Cash Expected (In-Hand)", value=f"₹{m['cash_expected']:,}")
-                    st.metric(label="📱 PhonePe / UPI Bank Transfers", value=f"₹{m['phonepe_verified']:,}")
-                with m_col2:
-                    st.metric(label="📝 Outstanding New Debt Registered", value=f"₹{m['debt_incurred']:,}")
-                    st.metric(label="💰 NET PROFIT EARNED TODAY (COMMISSIONS)", value=f"₹{m['net_profit']:,}", delta=f"{m['stamp_count']} Stamps Formatted")
-            else:
-                st.error("Access Prohibited: Server denied validation context.")
-        except Exception: st.error("Error connecting to live administration accounting API.")
-        st.write("---")
-        st.subheader("📥 Export Reports")
-
-        if st.button("📊 Download Excel Report", width="stretch"):
-
-            response = requests.get(
-                f"{BACKEND_URL}/export/daily-report/"
-            )
-
-            if response.status_code == 200:
-
-                st.download_button(
-                    label="⬇️ Click to Save Excel File",
-                    data=response.content,
-                    file_name="daily_report.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    width="stretch"
-                )
-
-            else:
-                 st.error(
-                 f"Failed. Status Code: {response.status_code}"
-                   )
-
-                 st.write(response.text)
-        with st.expander("💾 Database Backup"):
-
-            if st.button(
-                "📥 Create Backup",
-                use_container_width=True
-            ):
-
-                response = requests.get(
-                    f"{BACKEND_URL}/backup/"
-                )
-
-                if response.status_code == 200:
-                    st.success("✅ Database backup created successfully")
-                    st.download_button(
-                        label="⬇ Download Backup",
-                        data=response.content,
-                        file_name="backup.sql",
-                        mime="application/sql",
-                        use_container_width=True
+with tabs[2]:
+    st.subheader("📊 Live Daily Reconciliation Ledger (Admin Oversight)")
+    try:
+        analytics_res = requests.get(f"{BACKEND_URL}/analytics/daily-summary/", headers=headers)
+        if analytics_res.status_code == 200:
+            m = analytics_res.json()
+            m_col1, m_col2 = st.columns(2)
+            
+            # Left Column: Visible to ALL users
+            with m_col1:
+                st.metric(label="💵 Counter Cash Expected (In-Hand)", value=f"₹{m['cash_expected']:,}")
+                st.metric(label="📱 PhonePe / UPI Bank Transfers", value=f"₹{m['phonepe_verified']:,}")
+                st.metric(label="📝 Outstanding New Debt Registered", value=f"₹{m['debt_incurred']:,}")
+                
+            # Right Column: Role-restricted metrics
+            with m_col2:
+                if user_role == "admin":
+                    st.metric(
+                        label="💰 NET PROFIT EARNED TODAY (COMMISSIONS)", 
+                        value=f"₹{m['net_profit']:,}", 
+                        delta=f"{m['stamp_count']} Stamps Formatted"
                     )
-
                 else:
-                    st.error(
-                        "Backup generation failed"
-                    )
-            st.write("---")
-            st.subheader("📤 Restore Backup")
+                    st.info("accounts.")
+        else:
+            st.error("Access Prohibited: Server denied validation context.")
+    except Exception: 
+        st.error("Error connecting to live administration accounting API.")
+        
+    st.write("---")
+    
+    # Cleanly separated inside tabs[2] (No longer stuck inside the columns or try blocks)
+    st.subheader("📥 Export Reports")
 
-            restore_file = st.file_uploader(
-                "Select SQL Backup File",
-                type=["sql"]
-            )
-
-            if st.button(
-                "Restore Database",
+    if st.button("📊 Download Excel Report", use_container_width=True):
+        response = requests.get(f"{BACKEND_URL}/export/daily-report/")
+        if response.status_code == 200:
+            st.download_button(
+                label="⬇️ Click to Save Excel File",
+                data=response.content,
+                file_name="daily_report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
-            ):
+            )
+        else:
+            st.error(f"Failed. Status Code: {response.status_code}")
+            st.write(response.text)
+            
+    st.write("---")
 
-                if restore_file:
+    with st.expander("💾 Database Backup"):
+        if st.button("📥 Create Backup", use_container_width=True):
+            response = requests.get(f"{BACKEND_URL}/backup/")
+            if response.status_code == 200:
+                st.success("✅ Database backup created successfully")
+                st.download_button(
+                    label="⬇ Download Backup",
+                    data=response.content,
+                    file_name="backup.sql",
+                    mime="application/sql",
+                    use_container_width=True
+                )
+            else:
+                st.error("Backup generation failed")
+                
+        st.write("---")
+        st.subheader("📤 Restore Backup")
 
-                    response = requests.post(
-                        f"{BACKEND_URL}/restore/",
-                        files={
-                            "file": (
-                                restore_file.name,
-                                restore_file.getvalue()
-                            )
-                        }
-                    )
+        restore_file = st.file_uploader("Select SQL Backup File", type=["sql"])
 
-                    if response.status_code == 200:
+        if st.button("Restore Database", use_container_width=True):
+            if restore_file:
+                response = requests.post(
+                    f"{BACKEND_URL}/restore/",
+                    files={"file": (restore_file.name, restore_file.getvalue())}
+                )
+                if response.status_code == 200:
+                    st.success("✅ Database restored successfully")
+                else:
+                    st.error(f"Restore failed: {response.text}")
 
-                        st.success(
-                            "✅ Database restored successfully"
-                        )
-
-                    else:
-
-                        st.error(
-                             f"Restore failed: {response.text}"
-                        )
 # ==========================================
 # TAB 4: TRANSACTION HISTORY LOG & SECURE DELETIONS
 # ==========================================
 # Map active routing variables based on access role profiles
-history_tab_index = 3 if user_role == "admin" else 2
+# ==========================================
+# TAB 4: TRANSACTION HISTORY LOG & SECURE DELETIONS
+# ==========================================
+# Automatically finds the exact positional index of the Audit log tab
+history_tab_index = tab_list.index("📋 Transaction Logs Management")
+
 with tabs[history_tab_index]:
     st.subheader("📋 Core Audit Trail History")
     try:
+        
         response = requests.get(f"{BACKEND_URL}/transactions/", headers=headers)
         if response.status_code == 200:
             tx_list = response.json()
+            selected_date = st.date_input(
+                 "📅 Select Date"
+             )
             search_tx = st.text_input(
                 "🔍 Search Certificate",
-                placeholder="Certificate Number"
-                )
-            if search_tx:
-                transactions = [
-                    t for t in tx_list
-                    if search_tx.lower()
-                    in t["certificate_number"].lower()
-                ]
+                placeholder="Certificate Number",
+                key="audit_search_input"
+            )
             
-            if tx_list:
-                
-                df = pd.DataFrame(tx_list)
+            filtered_transactions = tx_list
+
+            # Date Filter
+            if selected_date:
+                filtered_transactions = [
+                    t for t in filtered_transactions
+                    if t.get("timestamp", "")[:10] == str(selected_date)
+                ]
+
+            # Certificate Search
+            if search_tx.strip():
+                clean_query = search_tx.strip().lower()
+
+                filtered_transactions = [
+                    t for t in filtered_transactions
+                    if clean_query in str(
+                        t.get("certificate_number", "")
+                    ).strip().lower()
+                ]
+
+            if filtered_transactions:
+                st.caption(f"Showing {len(filtered_transactions)} records")
+                df = pd.DataFrame(filtered_transactions)
                 st.dataframe(df, use_container_width=True, hide_index=True)
-                
-                # CRITICAL ADDITION: Secure administrative deletion execution engine panel
-                if user_role == "admin":
-                    st.write("---")
-                    st.markdown("### 🛠️ Revoke Entry Errors (Admin Deletion Console)")
-                    delete_id = st.number_input("Enter exact Transaction ID to delete following a worker mistake:", min_value=1, step=1)
-                    if st.button("🗑️ Permanently Delete Record & Readjust Balances", use_container_width=True):
-                        del_res = requests.delete(f"{BACKEND_URL}/transactions/{delete_id}/", headers=headers)
-                        if del_res.status_code == 200:
-                            st.warning(f"Record #{delete_id} dropped completely.")
-                            st.rerun()
-                        else:
-                            st.error(f"Deletion failed: {del_res.json().get('detail')}")
             else:
-                st.info("No transaction histories logged today yet.")
+                st.warning("No matching certificate found")    
+            
+            # Secure administrative deletion execution engine panel
+            if user_role == "admin":
+                st.write("---")
+                st.markdown("### 🛠️ Revoke Entry Errors (Admin Deletion Console)")
+                delete_id = st.number_input("Enter exact Transaction ID to delete following a worker mistake:", min_value=1, step=1)
+                if st.button("🗑️ Permanently Delete Record & Readjust Balances", use_container_width=True):
+                    del_res = requests.delete(f"{BACKEND_URL}/transactions/{delete_id}/", headers=headers)
+                    if del_res.status_code == 200:
+                        st.warning(f"Record #{delete_id} dropped completely.")
+                        st.rerun()
+                    else:
+                        st.error(f"Deletion failed: {del_res.json().get('detail')}")
+        else:
+            st.info("No transaction histories logged today yet.")
+            
     except Exception as e:
         st.error(f"Error drawing database record matrices: {str(e)}")
         

@@ -1,0 +1,5 @@
+[theme]
+# Sets Inter as the default page text and Roboto for headers
+font = "Inter:https://googleapis.com"
+headingFont = "Roboto:https://googleapis.com"
+codeFont = "monospace"
